@@ -1,0 +1,36 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Project outputs and large artifacts
+outputs/
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.zip
+
+# Hugging Face / model caches
+.cache/
+**/.cache/
+
+# Logs
+*.log

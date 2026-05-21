@@ -98,14 +98,6 @@ python analyze.py --results-dir outputs/results --plots-dir outputs/plots
 
 Графики сохраняются в `outputs/plots/`.
 
-### 4. Генерация отчёта
-
-```bash
-python make_report.py
-```
-
-Результат: `НИР_Давшиц_Семён_Музыкальная_Генерация.docx`.
-
 ---
 
 ## Структура проекта

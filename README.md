@@ -139,6 +139,8 @@ python analyze.py --results-dir outputs/results --plots-dir outputs/plots
 
 ## Результаты
 
+### FAD-inf по двум датасетам
+
 FAD-inf (референс: FMA-Pop), меньше — лучше:
 
 | Модель | CLAP-FAD | MERT-FAD | EnCodec-FAD |
@@ -159,5 +161,39 @@ FAD-inf (референс: MTG-Jamendo), меньше — лучше:
 | AudioLDM-M | 0.0302 | 3.10 | 733 |
 | Riffusion | 0.0498 | 11.97 | 14159 |
 
-AudioLDM-M лидирует на FMA-Pop, MusicLDM — на MTG-Jamendo.
-Riffusion неизменно худший по FAD, но лучший по CLAP Score (0.0079).
+### Визуализации
+
+**FAD по моделям и эмбеддингам (оба референса)**
+
+![FAD bar chart](assets/fad_bar.png)
+
+**Тепловые карты FAD-inf**
+
+| FMA-Pop | MTG-Jamendo |
+|---------|-------------|
+| ![heatmap fma](assets/fad_inf_heatmap_fma_pop.png) | ![heatmap jamendo](assets/fad_inf_heatmap_jamendo.png) |
+
+**CLAP Score — соответствие промпту (ящик с усами)**
+
+![CLAP Score](assets/clap_scores_violin.png)
+
+**Per-song FAD — разброс по отдельным трекам (ящики с усами)**
+
+| CLAP-эмбеддинг | MERT-эмбеддинг |
+|----------------|----------------|
+| ![boxplot clap](assets/per_song_boxplot_clap-laion-music_fma_pop.png) | ![boxplot mert](assets/per_song_boxplot_MERT-v1-95M-layer4_fma_pop.png) |
+
+**FAD vs FAD-inf**
+
+![FAD vs FAD-inf](assets/fad_vs_fad_inf.png)
+
+---
+
+## Выводы
+
+- **AudioLDM-M** — лучший по FAD на FMA-Pop (CLAP: 0.039, MERT: 2.93, EnCodec: 379); рекомендуется для задач, где важна акустическая близость к реальной музыке.
+- **MusicLDM** — лучший по FAD на MTG-Jamendo (CLAP: 0.0044, MERT: 2.53, EnCodec: 465); наиболее стабильный per-song FAD.
+- **Riffusion** — худший FAD по всем эмбеддингам и датасетам, но лучший CLAP Score (0.0079): хорошо следует промпту при слабой акустической реалистичности.
+- **FAD и FAD-inf** практически совпадают при 250 треках — размера выборки достаточно для устойчивой оценки.
+- **Смена референсного датасета** меняет лидера: на FMA-Pop первый AudioLDM-M, на MTG-Jamendo — MusicLDM. Это подчёркивает важность оценки на нескольких датасетах.
+- **Увеличение размера модели** (AudioLDM-M → AudioLDM-L) не даёт улучшения: AudioLDM-L значительно уступает по EnCodec-FAD (4230 против 379 на FMA-Pop).

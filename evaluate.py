@@ -40,6 +40,7 @@ EMBEDDING_ALIASES = {
 REFERENCE_ALIASES = {
     "fma": "fma_pop",
     "fma_pop": "fma_pop",
+    "jamendo": "jamendo",
     "musiccaps": "musiccaps",
     "gtzan": "gtzan",
 }

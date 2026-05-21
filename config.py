@@ -40,6 +40,7 @@ EMBEDDING_MODELS = ["clap-laion-music", "encodec", "MERT-v1-95M-layer4", "vggish
 
 REFERENCE_SETS = {
     "fma_pop": OUTPUTS_DIR / "reference" / "fma_pop",
+    "jamendo": OUTPUTS_DIR / "reference" / "jamendo",
     "musiccaps": OUTPUTS_DIR / "reference" / "musiccaps",
     "gtzan": OUTPUTS_DIR / "reference" / "gtzan",
 }

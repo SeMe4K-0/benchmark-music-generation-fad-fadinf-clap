@@ -56,7 +56,7 @@ class RiffusionGenerator(BaseGenerator):
             self.load_model()
 
         sr = 44100
-        spectrogram_prompt = f"spectogram of {prompt}"
+        spectrogram_prompt = f"spectrogram of {prompt}"
 
         image = self.pipe(
             spectrogram_prompt,

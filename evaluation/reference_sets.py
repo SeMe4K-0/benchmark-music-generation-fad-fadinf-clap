@@ -37,6 +37,8 @@ def prepare_reference_set(name: str, output_dir: Path) -> Path:
         return _prepare_fma_pop(output_dir)
     if name == "gtzan":
         return _prepare_gtzan(output_dir)
+    if name == "jamendo":
+        return _prepare_jamendo(output_dir)
     raise ValueError(f"Unknown reference set: {name}")
 
 
@@ -375,3 +377,196 @@ def _prepare_gtzan(output_dir: Path) -> Path:
 
     log.info("GTZAN: saved %d audio files to %s", count, output_dir)
     return output_dir
+
+
+def _prepare_jamendo(output_dir: Path) -> Path:
+    """Download MTG-Jamendo clips for use as a reference set.
+
+    Strategy
+    --------
+    1. Try HuggingFace datasets that expose Jamendo audio directly
+       (``lewtun/music_genres`` contains ~900 Jamendo clips with audio column).
+    2. Fall back to fetching track-IDs from the MTG-Jamendo metadata TSV on
+       GitHub and streaming 10-second clips from the Jamendo CDN via urllib +
+       ffmpeg (same approach as MusicCaps YouTube fallback).
+    """
+    target_count = 500
+
+    count = _prepare_jamendo_from_hf(output_dir, target_count)
+    if count >= 50:
+        log.info("Jamendo: saved %d audio files via HuggingFace to %s", count, output_dir)
+        return output_dir
+
+    log.warning(
+        "Jamendo HuggingFace sources yielded only %d files. "
+        "Falling back to MTG metadata + Jamendo CDN.",
+        count,
+    )
+    count = _prepare_jamendo_from_cdn(output_dir, target_count)
+    log.info("Jamendo: saved %d audio files total to %s", count, output_dir)
+    return output_dir
+
+
+def _prepare_jamendo_from_hf(output_dir: Path, target_count: int = 500) -> int:
+    """Try HuggingFace datasets that contain Jamendo audio columns."""
+    import soundfile as sf
+    from datasets import load_dataset
+
+    # Candidates in order of preference; each may or may not have an audio column.
+    candidates = [
+        ("lewtun/music_genres", "default", "train"),
+        ("lewtun/music_genres", None, "train"),
+    ]
+
+    count = len(list(output_dir.glob("jamendo_*.wav")))
+    if count >= target_count:
+        return count
+
+    for dataset_name, config_name, split in candidates:
+        try:
+            if config_name is None:
+                log.info("Trying Jamendo HF variant: %s[%s] (streaming)", dataset_name, split)
+                ds = load_dataset(dataset_name, split=split, streaming=True, trust_remote_code=False)
+            else:
+                log.info("Trying Jamendo HF variant: %s/%s[%s] (streaming)", dataset_name, config_name, split)
+                ds = load_dataset(dataset_name, config_name, split=split, streaming=True, trust_remote_code=False)
+        except Exception as exc:
+            log.warning("Failed to load %s: %s", dataset_name, exc)
+            continue
+
+        try:
+            for idx, row in enumerate(ds):
+                if count >= target_count:
+                    return count
+                audio_data = row.get("audio")
+                if audio_data is None:
+                    continue
+                sr = audio_data.get("sampling_rate")
+                array = audio_data.get("array")
+                if sr is None or array is None:
+                    continue
+                out_path = output_dir / f"jamendo_{count:04d}.wav"
+                if out_path.exists():
+                    count += 1
+                    continue
+                try:
+                    sf.write(str(out_path), array, sr)
+                    count += 1
+                    if count % 50 == 0:
+                        log.info("Jamendo HF progress: %d/%d", count, target_count)
+                except Exception as exc:
+                    log.warning("Could not write %s: %s", out_path, exc)
+        except Exception as exc:
+            log.warning("Jamendo HF streaming failed (%s): %s", dataset_name, exc)
+
+        if count >= 50:
+            return count
+
+    return count
+
+
+def _prepare_jamendo_from_cdn(output_dir: Path, target_count: int = 500) -> int:
+    """Download clips from Jamendo CDN using track IDs from MTG metadata TSV."""
+    import csv
+    import io
+    import tempfile
+    import urllib.request
+
+    if shutil.which("ffmpeg") is None:
+        log.warning("ffmpeg not found — cannot cut Jamendo clips. Install ffmpeg.")
+        return len(list(output_dir.glob("jamendo_*.wav")))
+
+    # MTG-Jamendo raw metadata: PATH column contains "14/214.mp3" → track_id=214
+    tsv_url = (
+        "https://raw.githubusercontent.com/MTG/mtg-jamendo-dataset/"
+        "master/data/raw_30s.tsv"
+    )
+    log.info("Fetching MTG-Jamendo metadata from %s …", tsv_url)
+    try:
+        req = urllib.request.Request(tsv_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            tsv_text = resp.read().decode("utf-8")
+    except Exception as exc:
+        log.error("Failed to fetch MTG-Jamendo metadata: %s", exc)
+        return len(list(output_dir.glob("jamendo_*.wav")))
+
+    reader = csv.DictReader(io.StringIO(tsv_text), delimiter="\t")
+    track_ids: list[str] = []
+    for row in reader:
+        path = row.get("PATH", "")          # e.g. "14/214.mp3"
+        if path:
+            numeric_id = path.split("/")[-1].replace(".mp3", "")
+            if numeric_id.isdigit():
+                track_ids.append(numeric_id)
+        if len(track_ids) >= target_count * 3:
+            break
+
+    if not track_ids:
+        log.error("No track IDs found in MTG-Jamendo TSV.")
+        return len(list(output_dir.glob("jamendo_*.wav")))
+
+    count = len(list(output_dir.glob("jamendo_*.wav")))
+    attempted = 0
+    failed = 0
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        for track_id in track_ids:
+            if count >= target_count:
+                break
+
+            out_path = output_dir / f"jamendo_{track_id}.wav"
+            if out_path.exists():
+                count += 1
+                continue
+
+            # Jamendo CDN streaming URL (mp3, 128 kbps)
+            stream_url = (
+                f"https://prod-1.storage.jamendo.com/"
+                f"?trackid={track_id}&format=mp31"
+            )
+            tmp_audio = tmp / f"{track_id}.mp3"
+            attempted += 1
+
+            try:
+                urllib.request.urlretrieve(stream_url, str(tmp_audio))
+            except Exception as exc:
+                log.debug("Download failed for track %s: %s", track_id, exc)
+                failed += 1
+                continue
+
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y",
+                        "-t", "10",
+                        "-i", str(tmp_audio),
+                        "-ac", "1",
+                        "-ar", "16000",
+                        "-vn",
+                        str(out_path),
+                    ],
+                    check=True,
+                    timeout=60,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception as exc:
+                log.debug("ffmpeg failed for track %s: %s", track_id, exc)
+                failed += 1
+            finally:
+                tmp_audio.unlink(missing_ok=True)
+
+            if out_path.exists():
+                count += 1
+                if count % 50 == 0:
+                    log.info(
+                        "Jamendo CDN progress: saved=%d attempted=%d failed=%d",
+                        count, attempted, failed,
+                    )
+
+    log.info(
+        "Jamendo CDN finished: saved=%d attempted=%d failed=%d",
+        count, attempted, failed,
+    )
+    return count
